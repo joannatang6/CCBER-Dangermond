@@ -1,0 +1,280 @@
+---
+title: "CCBER-Dangermond"
+author: "Joanna Tang"
+date: "5/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include = FALSE}
+
+# Loading packages, read in data
+library(pairwiseAdonis)
+library(kableExtra)
+library(vegan)
+library(car)
+library(RColorBrewer)
+library(reshape2)
+library(kableExtra)
+library(FSA)
+library(plotly)
+library(ggsignif)
+library(lme4)
+library(bestNormalize)
+library(betareg)
+library(nlme)
+library(MASS)
+library(fitdistrplus)
+library(plotrix)
+library(janitor)
+library(ggpubr)
+library(rstatix)
+library(tidyverse)
+
+
+# Read in data
+combined_dangermond_master <- read_csv("combined_dangermond.csv")
+metadata <- read_csv("dangermond_metadata.csv")
+
+# Combine data
+combined_dangermond <- metadata %>% 
+  select(4:5) %>% 
+  full_join(combined_dangermond_master) %>% 
+  clean_names() %>% 
+  drop_na(substrate_zone) %>% 
+  select(-date) %>% 
+  mutate(replicate = paste(sample_site, source, sep = "-"))
+
+
+```
+
+#1. Does seedbank diversity differ from aboveground diversity?
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+
+#1. Does seedbank diversity differ from aboveground diversity?
+
+#Could compare % native and % non-native by seed bank versus cover and/or by soil type.
+
+## Dataframe adding up seedbank abundances per species per replicate
+total_abundances <- combined_dangermond %>% 
+  group_by(replicate) %>% 
+  summarize(total = sum(abundance))
+
+## Dataframe of both seedbank and percent cover in normalized proportions
+combined_proportion <- combined_dangermond %>% 
+  group_by(replicate, sample_site, substrate_zone, species, , source, iceplant_depth_cm) %>% 
+  summarize(sum_abundance = sum(abundance)) %>% 
+  full_join(total_abundances) %>% 
+  mutate(proportion = sum_abundance/total) %>%  #proportion is # seedlings per species/total # seedlings, or % cover per species/total % cover
+  select(-sum_abundance)
+
+
+
+## Community matrix
+combined_matrix <- combined_proportion %>% 
+  pivot_wider(names_from = species, values_from = proportion) %>% 
+  mutate_all(funs(replace_na(.,0))) %>% 
+  column_to_rownames("replicate") %>% 
+  select(6:147)
+
+### Community matrix variables
+combined_matrix_variables <- combined_proportion %>% 
+  pivot_wider(names_from = species, values_from = proportion) %>% 
+  mutate_all(funs(replace_na(.,0))) %>% 
+  select(1:6)
+
+## NMDS
+combined_nmds <- metaMDS(combined_matrix, trymax = 250, maxit = 999, k = 3)
+#stressplot(combined_nmds)
+#Generally, an average stress of > 0.2 is an indication that the ordination didn’t do a good job of representing community structure. However, NMDS stress increases as sample size increases, so if you have many samples (as this dataset does) your ordination will likely exhibit a lot of stress
+#stress = .07277
+
+combined_nmds_scores <- scores(combined_nmds, display = "sites") %>% 
+  as.data.frame() %>% 
+  rownames_to_column("replicate") %>% 
+  full_join(combined_matrix_variables)
+
+combined_nmds_fit <- envfit(combined_nmds, combined_matrix, perm = 999) #envfit() takes the output of metaMDS() and the species matrix you created
+
+combined_nmds_fit_pvals <- combined_nmds_fit$vectors$pvals %>% 
+  as.data.frame() %>% 
+  rownames_to_column("species") %>% 
+  dplyr::rename("pvals" = ".") #extract p-values for each species
+
+combined_nmds_fit_coords <- combined_nmds_fit %>% 
+  scores(., display = "vectors") %>% 
+  as.data.frame() %>% 
+  rownames_to_column("species") %>% 
+  full_join(., combined_nmds_fit_pvals, by = "species") %>% 
+  filter(pvals == 0.001) #extract coordinates for species, only keep species with p-val = 0.001
+
+
+
+### NMDS of all Del Sol and North Parcel data, with species biplot
+combined_nmds_species_biplot <- ggplot(combined_nmds_scores, aes(x = NMDS1, y = NMDS2)) +
+  coord_fixed() +
+  geom_point(aes(color = source)) +
+  stat_ellipse(aes(color = source)) +
+  geom_segment(data = combined_nmds_fit_coords, aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2),
+               arrow = arrow(length = unit(0.25, "cm")),
+               col = "black") +
+  geom_text(data = combined_nmds_fit_coords, aes(label = species)) +
+  theme_classic() +
+  labs(title = "NMDS comparing Dangermond seedbank and aboveground diversity", caption = "Seedbank community is significantly different from aboveground diversity (perMANOVA p = 0.001)")
+combined_nmds_species_biplot
+
+### perMANOVA, by source
+combined_source_permanova <- adonis(combined_matrix ~ as.factor(source), data = combined_matrix_variables)
+#p = .001
+
+
+```
+
+
+#2. Does seedbank diversity differ between soil types?
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+
+#2. Does seedbank diversity differ between soil types?
+
+## Seedbank community matrix
+seedbank_matrix <- combined_proportion %>% 
+  filter(source == "seedbank") %>% 
+  pivot_wider(names_from = species, values_from = proportion) %>% 
+  mutate_all(funs(replace_na(.,0))) %>% 
+  column_to_rownames("replicate") %>% 
+  select(6:101)
+
+### Seedbank community matrix variables
+seedbank_matrix_variables <- combined_proportion %>% 
+  filter(source == "seedbank") %>% 
+  pivot_wider(names_from = species, values_from = proportion) %>% 
+  mutate_all(funs(replace_na(.,0))) %>% 
+  select(1:6)
+
+## NMDS
+seedbank_nmds <- metaMDS(seedbank_matrix, trymax = 250, maxit = 999, k = 3)
+#stressplot(seedbank_nmds)
+#Generally, an average stress of > 0.2 is an indication that the ordination didn’t do a good job of representing community structure. However, NMDS stress increases as sample size increases, so if you have many samples (as this dataset does) your ordination will likely exhibit a lot of stress
+#stress = .1451
+
+seedbank_nmds_scores <- scores(seedbank_nmds, display = "sites") %>% 
+  as.data.frame() %>% 
+  rownames_to_column("replicate") %>% 
+  full_join(seedbank_matrix_variables)
+
+seedbank_nmds_fit <- envfit(seedbank_nmds, seedbank_matrix, perm = 999) #envfit() takes the output of metaMDS() and the species matrix you created
+
+seedbank_nmds_fit_pvals <- seedbank_nmds_fit$vectors$pvals %>% 
+  as.data.frame() %>% 
+  rownames_to_column("species") %>% 
+  dplyr::rename("pvals" = ".") #extract p-values for each species
+
+seedbank_nmds_fit_coords <- seedbank_nmds_fit %>% 
+  scores(., display = "vectors") %>% 
+  as.data.frame() %>% 
+  rownames_to_column("species") %>% 
+  full_join(., seedbank_nmds_fit_pvals, by = "species") %>% 
+  filter(pvals == 0.001) #extract coordinates for species, only keep species with p-val = 0.001
+
+
+
+### NMDS of seedbank diversity, with species biplot
+seedbank_nmds_species_biplot <- ggplot(seedbank_nmds_scores, aes(x = NMDS1, y = NMDS2)) +
+  coord_fixed() +
+  geom_point(aes(color = substrate_zone)) +
+  stat_ellipse(aes(color = substrate_zone)) +
+  geom_segment(data = combined_nmds_fit_coords, aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2),
+               arrow = arrow(length = unit(0.25, "cm")),
+               col = "black") +
+  geom_text(data = combined_nmds_fit_coords, aes(label = species)) +
+  theme_classic() +
+  labs(title = "NMDS comparing Dangermond seedbank diversity between substrate types", caption = "Wetland seedbank community significantly different from \n Dune community (post-hoc pairwise perMANOVA p = 0.048) \n and Loam community (post-hoc pairwise perMANOVA p = 0.096)")
+seedbank_nmds_species_biplot
+
+### perMANOVA, by substrate
+seedbank_substrate_permanova <- adonis(seedbank_matrix ~ as.factor(substrate_zone), data = seedbank_matrix_variables)
+#p = .009
+
+###Post-hoc test
+seedbank_substrate_pairwise <- pairwise.adonis(seedbank_matrix, seedbank_matrix_variables$substrate_zone)
+#Dune vs Wetlands p = .048, Loam vs Wetland p = .096
+
+
+```
+
+
+#3. Does aboveground diversity differ between soil types?
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+
+#3. Does aboveground diversity differ between soil types?
+
+## Aboveground community matrix
+aboveground_matrix <- combined_proportion %>% 
+  filter(source == "aboveground") %>% 
+  pivot_wider(names_from = species, values_from = proportion) %>% 
+  mutate_all(funs(replace_na(.,0))) %>% 
+  column_to_rownames("replicate") %>% 
+  select(6:66)
+
+### Aboveground community matrix variables
+aboveground_matrix_variables <- combined_proportion %>% 
+  filter(source == "aboveground") %>% 
+  pivot_wider(names_from = species, values_from = proportion) %>% 
+  mutate_all(funs(replace_na(.,0))) %>% 
+  select(1:6)
+
+## NMDS
+aboveground_nmds <- metaMDS(aboveground_matrix, trymax = 100)
+#stressplot(aboveground_nmds)
+#Generally, an average stress of > 0.2 is an indication that the ordination didn’t do a good job of representing community structure. However, NMDS stress increases as sample size increases, so if you have many samples (as this dataset does) your ordination will likely exhibit a lot of stress
+#stress = .1523
+
+aboveground_nmds_scores <- scores(aboveground_nmds, display = "sites") %>% 
+  as.data.frame() %>% 
+  rownames_to_column("replicate") %>% 
+  full_join(aboveground_matrix_variables)
+
+aboveground_nmds_fit <- envfit(aboveground_nmds, aboveground_matrix, perm = 999) #envfit() takes the output of metaMDS() and the species matrix you created
+
+aboveground_nmds_fit_pvals <- aboveground_nmds_fit$vectors$pvals %>% 
+  as.data.frame() %>% 
+  rownames_to_column("species") %>% 
+  dplyr::rename("pvals" = ".") #extract p-values for each species
+
+aboveground_nmds_fit_coords <- aboveground_nmds_fit %>% 
+  scores(., display = "vectors") %>% 
+  as.data.frame() %>% 
+  rownames_to_column("species") %>% 
+  full_join(., aboveground_nmds_fit_pvals, by = "species") %>% 
+  filter(pvals == 0.001) #extract coordinates for species, only keep species with p-val = 0.001
+
+
+
+### NMDS of aboveground diversity, with species biplot
+aboveground_nmds_species_biplot <- ggplot(aboveground_nmds_scores, aes(x = NMDS1, y = NMDS2)) +
+  coord_fixed() +
+  geom_point(aes(color = substrate_zone)) +
+  stat_ellipse(aes(color = substrate_zone)) +
+  geom_segment(data = aboveground_nmds_fit_coords, aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2),
+               arrow = arrow(length = unit(0.25, "cm")),
+               col = "black") +
+  geom_text(data = aboveground_nmds_fit_coords, aes(label = species)) +
+  theme_classic() +
+  labs(title = "NMDS comparing Dangermond aboveground diversity between substrate types", caption = "Dune aboveground community significantly different from \n Wetland community (post-hoc pairwise perMANOVA p = 0.024) \n and Bull Pen community (post-hoc pairwise perMANOVA p = 0.048)")
+aboveground_nmds_species_biplot
+
+### perMANOVA, by substrate
+aboveground_substrate_permanova <- adonis(aboveground_matrix ~ as.factor(substrate_zone), data = aboveground_matrix_variables)
+#p = .004
+
+###Post-hoc test
+aboveground_substrate_pairwise <- pairwise.adonis(aboveground_matrix, aboveground_matrix_variables$substrate_zone)
+#Bull Pen vs. Dune p = .048, Dune vs. Wetland p = .024, Loam vs. Wetland p = .108
+
+```
+
