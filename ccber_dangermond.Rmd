@@ -51,7 +51,7 @@ combined_dangermond <- metadata %>%
 
 ```
 
-#1. Does seedbank diversity differ from aboveground diversity?
+# 1. Does seedbank diversity differ from aboveground diversity?
 
 ```{r echo = FALSE, message = FALSE, warning = FALSE}
 
@@ -77,10 +77,13 @@ combined_proportion <- combined_dangermond %>%
 ## Community matrix, using just presence/absence
 combined_matrix <- combined_proportion %>% 
   mutate(proportion = case_when(proportion >0 ~ 1)) %>% 
+  filter(species != "other thatch") %>% 
+  filter(species != "iceplant thatch") %>% 
+  filter(species != "bare ground") %>% 
   pivot_wider(names_from = species, values_from = proportion) %>% 
   mutate_all(funs(replace_na(.,0))) %>% 
   column_to_rownames("replicate") %>% 
-  select(6:147)
+  select(6:143)
 
 ### Community matrix variables
 combined_matrix_variables <- combined_proportion %>% 
@@ -92,7 +95,7 @@ combined_matrix_variables <- combined_proportion %>%
 combined_nmds <- metaMDS(combined_matrix, trymax = 250, maxit = 999, k = 3)
 #stressplot(combined_nmds)
 #Generally, an average stress of > 0.2 is an indication that the ordination didn’t do a good job of representing community structure. However, NMDS stress increases as sample size increases, so if you have many samples (as this dataset does) your ordination will likely exhibit a lot of stress
-#stress = .06318
+#stress = .0671787
 
 combined_nmds_scores <- scores(combined_nmds, display = "sites") %>% 
   as.data.frame() %>% 
@@ -105,17 +108,20 @@ combined_nmds_fit_pvals <- combined_nmds_fit$vectors$pvals %>%
   as.data.frame() %>% 
   rownames_to_column("species") %>% 
   dplyr::rename("pvals" = ".") #extract p-values for each species
-combined_nmds_sig_species <- combined_nmds_fit_pvals %>% 
-  filter(pvals == 0.001) %>% 
+combined_nmds_sig_species <- as.data.frame(combined_nmds_fit_pvals) %>% 
+  filter(pvals <= 0.05) %>% 
+  inner_join(combined_proportion) %>% 
+  group_by(species, pvals, source) %>% 
+  summarize(mean_prop = mean(proportion)) %>% 
   kable()
-combined_nmds_sig_species #table of sig species
+combined_nmds_sig_species #table of sig species, with mean species prop
 
 combined_nmds_fit_coords <- combined_nmds_fit %>% 
   scores(., display = "vectors") %>% 
   as.data.frame() %>% 
   rownames_to_column("species") %>% 
   full_join(., combined_nmds_fit_pvals, by = "species") %>% 
-  filter(pvals == 0.001) #extract coordinates for species, only keep species with p-val = 0.001
+  filter(pvals <= 0.001) #extract coordinates for species, only keep species with p-val = 0.001
 
 
 
@@ -146,17 +152,20 @@ combined_source_permanova <- adonis(combined_matrix ~ as.factor(source), data = 
 
 ## Community matrix, using normalized proportions
 combined_prop_matrix <- combined_proportion %>% 
+  filter(species != "other thatch") %>% 
+  filter(species != "iceplant thatch") %>% 
+  filter(species != "bare ground") %>% 
   pivot_wider(names_from = species, values_from = proportion) %>% 
   mutate_all(funs(replace_na(.,0))) %>% 
   column_to_rownames("replicate") %>% 
-  select(6:147)
+  select(6:143)
 
 
 ## NMDS
 combined_prop_nmds <- metaMDS(combined_matrix, trymax = 250, maxit = 999, k = 3)
 #stressplot(combined_prop_nmds)
 #Generally, an average stress of > 0.2 is an indication that the ordination didn’t do a good job of representing community structure. However, NMDS stress increases as sample size increases, so if you have many samples (as this dataset does) your ordination will likely exhibit a lot of stress
-#stress = .07277
+#stress = .067175
 
 combined_prop_nmds_scores <- scores(combined_prop_nmds, display = "sites") %>% 
   as.data.frame() %>% 
@@ -169,17 +178,20 @@ combined_prop_nmds_fit_pvals <- combined_prop_nmds_fit$vectors$pvals %>%
   as.data.frame() %>% 
   rownames_to_column("species") %>% 
   dplyr::rename("pvals" = ".") #extract p-values for each species
-combined_prop_nmds_sig_species <- combined_prop_nmds_fit_pvals %>% 
-  filter(pvals == 0.001) %>% 
+combined_prop_nmds_sig_species <- as.data.frame(combined_prop_nmds_fit_pvals) %>% 
+  filter(pvals <= 0.05) %>% 
+  inner_join(combined_proportion) %>% 
+  group_by(species, pvals, source) %>% 
+  summarize(mean_prop = mean(proportion)) %>% 
   kable()
-combined_prop_nmds_sig_species #table of sig species
+combined_prop_nmds_sig_species #table of sig species, with mean species prop
 
 combined_prop_nmds_fit_coords <- combined_prop_nmds_fit %>% 
   scores(., display = "vectors") %>% 
   as.data.frame() %>% 
   rownames_to_column("species") %>% 
   full_join(., combined_prop_nmds_fit_pvals, by = "species") %>% 
-  filter(pvals == 0.001) #extract coordinates for species, only keep species with p-val = 0.001
+  filter(pvals <= 0.001) #extract coordinates for species, only keep species with p-val = 0.001
 
 
 
@@ -204,7 +216,7 @@ combined_prop_source_permanova <- adonis(combined_prop_matrix ~ as.factor(source
 ```
 
 
-#2. Does seedbank diversity differ between soil types?
+# 2. Does seedbank diversity differ between soil types?
 ```{r echo = FALSE, message = FALSE, warning = FALSE}
 
 #2. Does seedbank diversity differ between soil types?
@@ -241,17 +253,20 @@ seedbank_nmds_fit_pvals <- seedbank_nmds_fit$vectors$pvals %>%
   as.data.frame() %>% 
   rownames_to_column("species") %>% 
   dplyr::rename("pvals" = ".") #extract p-values for each species
-seedbank_nmds_sig_species <- seedbank_nmds_fit_pvals %>% 
-  filter(pvals == 0.001) %>% 
+seedbank_nmds_sig_species <- as.data.frame(seedbank_nmds_fit_pvals) %>% 
+  filter(pvals <= 0.05) %>% 
+  inner_join(combined_proportion) %>% 
+  group_by(species, pvals, substrate_zone) %>% 
+  summarize(mean_prop = mean(proportion)) %>% 
   kable()
-seedbank_nmds_sig_species #table of sig species
+seedbank_nmds_sig_species #table of sig species, with mean species prop
 
 seedbank_nmds_fit_coords <- seedbank_nmds_fit %>% 
   scores(., display = "vectors") %>% 
   as.data.frame() %>% 
   rownames_to_column("species") %>% 
   full_join(., seedbank_nmds_fit_pvals, by = "species") %>% 
-  filter(pvals == 0.001) #extract coordinates for species, only keep species with p-val = 0.001
+  filter(pvals <= 0.001) #extract coordinates for species, only keep species with p-val = 0.001
 
 
 
@@ -280,7 +295,7 @@ seedbank_substrate_pairwise <- pairwise.adonis(seedbank_matrix, seedbank_matrix_
 ```
 
 
-#3. Does aboveground diversity differ between soil types?
+# 3. Does aboveground diversity differ between soil types?
 
 ```{r echo = FALSE, message = FALSE, warning = FALSE}
 
@@ -318,17 +333,20 @@ aboveground_nmds_fit_pvals <- aboveground_nmds_fit$vectors$pvals %>%
   as.data.frame() %>% 
   rownames_to_column("species") %>% 
   dplyr::rename("pvals" = ".") #extract p-values for each species
-aboveground_nmds_sig_species <- aboveground_nmds_fit_pvals %>% 
-  filter(pvals == 0.001) %>% 
+aboveground_nmds_sig_species <- as.data.frame(aboveground_nmds_fit_pvals) %>% 
+  filter(pvals <= 0.05) %>% 
+  inner_join(combined_proportion) %>% 
+  group_by(species, pvals, substrate_zone) %>% 
+  summarize(mean_prop = mean(proportion)) %>% 
   kable()
-aboveground_nmds_sig_species #table of sig species
+aboveground_nmds_sig_species #table of sig species, with mean species prop
 
 aboveground_nmds_fit_coords <- aboveground_nmds_fit %>% 
   scores(., display = "vectors") %>% 
   as.data.frame() %>% 
   rownames_to_column("species") %>% 
   full_join(., aboveground_nmds_fit_pvals, by = "species") %>% 
-  filter(pvals == 0.001) #extract coordinates for species, only keep species with p-val = 0.001
+  filter(pvals <= 0.001) #extract coordinates for species, only keep species with p-val = 0.001
 
 
 
